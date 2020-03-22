@@ -81,7 +81,10 @@ class CreditCommunication(models.TransientModel):
         """ Return a valid email for customer """
         self.ensure_one()
         contact = self.contact_address
-        return contact.email
+        email = contact.email
+        if not email and contact.commercial_partner_id.email:
+            email = contact.commercial_partner_id.email
+        return email
 
     @api.multi
     @api.returns('res.partner')
@@ -166,6 +169,10 @@ class CreditCommunication(models.TransientModel):
             # of storing res_id
             email_values.pop('model', None)
             email_values.pop('res_id', None)
+
+            # Remove when mail.template returns correct format attachments
+            attachment_list = email_values.pop('attachments', None)
+
             email = emails.create(email_values)
 
             state = 'sent'
@@ -176,23 +183,16 @@ class CreditCommunication(models.TransientModel):
             # a problem with the email
             if not all(email_values.get(field) for field in required_fields):
                 state = 'email_error'
-
+            email.attachment_ids = [(0, 0, {
+                'name': att[0],
+                'datas': att[1],
+                'datas_fname': att[0],
+                'res_model': 'mail.mail',
+                'res_id': email.id,
+                'type': 'binary',
+            }) for att in attachment_list]
             comm.credit_control_line_ids.write({'mail_message_id': email.id,
                                                 'state': state})
-            attachments = self.env['ir.attachment']
-            for att in email_values.get('attachments', []):
-                attach_fname = att[0]
-                attach_datas = att[1]
-                data_attach = {
-                    'name': attach_fname,
-                    'datas': attach_datas,
-                    'datas_fname': attach_fname,
-                    'res_model': 'mail.mail',
-                    'res_id': email.id,
-                    'type': 'binary',
-                }
-                attachments |= attachments.create(data_attach)
-            email.write({'attachment_ids': [(6, 0, attachments.ids)]})
             emails += email
         return emails
 
